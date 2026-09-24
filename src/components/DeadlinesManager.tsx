@@ -16,6 +16,7 @@ import {
   Share2,
   X,
   GraduationCap,
+  Trash2,
 } from 'lucide-react';
 import { Deadline, Course, DeadlineType, PriorityLevel } from '../types';
 import confetti from 'canvas-confetti';
@@ -28,6 +29,8 @@ interface DeadlinesManagerProps {
   onToggleDeadlineStatus: (deadlineId: string) => void;
   onToggleReminder: (deadlineId: string) => void;
   onAddDeadline: (deadline: Deadline) => void;
+  onDeleteDeadline?: (deadlineId: string) => void;
+  onClearAllDeadlines?: () => void;
   onSelectCourse: (course: Course) => void;
   onNavigateToCanvasFeed?: () => void;
 }
@@ -38,6 +41,8 @@ export const DeadlinesManager: React.FC<DeadlinesManagerProps> = ({
   onToggleDeadlineStatus,
   onToggleReminder,
   onAddDeadline,
+  onDeleteDeadline,
+  onClearAllDeadlines,
   onSelectCourse,
   onNavigateToCanvasFeed,
 }) => {
@@ -58,25 +63,24 @@ export const DeadlinesManager: React.FC<DeadlinesManagerProps> = ({
   const [newSubmissionUrl, setNewSubmissionUrl] = useState('');
   const [newDescription, setNewDescription] = useState('');
 
-  const getCanvasDirectUrl = (dl: Deadline, course?: Course): string => {
-    if (dl.submissionUrl && (dl.submissionUrl.startsWith('http://') || dl.submissionUrl.startsWith('https://'))) {
-      return dl.submissionUrl;
+  const getCanvasDirectUrl = (deadline: Deadline, course?: Course): string => {
+    if (deadline.submissionUrl && deadline.submissionUrl.startsWith('http')) {
+      return deadline.submissionUrl;
     }
-    const cleanCode = course?.code ? course.code.replace(/\s+/g, '').toLowerCase() : 'courses';
-    const idNum = dl.id.replace(/[^0-9]/g, '') || '1';
-    return `https://vinuni.instructure.com/courses/${cleanCode}/assignments/${idNum}`;
+    const canvasCourseId = course?.id.replace(/[^0-9]/g, '') || '1020';
+    return `https://vinuni.instructure.com/courses/${canvasCourseId}/assignments`;
   };
 
-  const handleToggleComplete = (id: string) => {
-    soundEffects.playSuccessPop();
-    try {
+  const handleToggleComplete = (dl: Deadline) => {
+    if (dl.status !== 'completed') {
       confetti({
         particleCount: 50,
-        spread: 70,
-        origin: { y: 0.6 },
+        spread: 60,
+        origin: { y: 0.8 },
       });
-    } catch {}
-    onToggleDeadlineStatus(id);
+      soundEffects.playComplete();
+    }
+    onToggleDeadlineStatus(dl.id);
   };
 
   const handleTriggerReminderTest = (dl: Deadline) => {
@@ -138,20 +142,16 @@ export const DeadlinesManager: React.FC<DeadlinesManagerProps> = ({
   });
 
   const getDaysRemaining = (dueDate: string, dueTime: string) => {
-    const target = new Date(`${dueDate}T${dueTime}:00`);
+    const due = new Date(`${dueDate}T${dueTime || '23:59'}:00`);
     const now = new Date();
-    const diffMs = target.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffDays < 0) return 'Past due';
-    if (diffDays === 0) return 'Due today!';
-    if (diffDays === 1) return 'Due tomorrow';
-    return `Due in ${diffDays} days`;
+    const diffTime = due.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
   };
 
   return (
     <div className="space-y-4">
-      {/* Header Container: Crisp, solid VinUni branding, no generic gradients */}
+      {/* Header Container */}
       <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1.5">
@@ -168,6 +168,19 @@ export const DeadlinesManager: React.FC<DeadlinesManagerProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          {deadlines.length > 0 && onClearAllDeadlines && (
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={onClearAllDeadlines}
+              className="px-3.5 py-2.5 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5 whitespace-nowrap border border-red-200"
+              title="Clear all sample/mock deadlines"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-red-600" />
+              <span>Clear Sample Deadlines</span>
+            </motion.button>
+          )}
+
           {onNavigateToCanvasFeed && (
             <motion.button
               whileHover={{ scale: 1.02 }}
@@ -255,128 +268,100 @@ export const DeadlinesManager: React.FC<DeadlinesManagerProps> = ({
         </div>
       </div>
 
-      {/* Deadlines List with Framer Motion layout */}
+      {/* Deadlines List */}
       <div className="space-y-3">
         {filteredDeadlines.length === 0 ? (
-          <div className="bg-white rounded-3xl border border-dashed border-slate-300 p-12 text-center text-slate-400">
-            <CheckSquare className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-            <p className="text-base font-bold text-slate-700">No matching deadlines found</p>
-            <p className="text-xs text-slate-400 mt-1">
-              Try adjusting your search filters or click "Add Deadline or Exam" above.
+          <div className="bg-white rounded-3xl border border-dashed border-slate-200 p-12 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3">
+              <CheckCircle2 className="w-6 h-6" />
+            </div>
+            <h4 className="text-base font-bold text-slate-900">No deadlines found</h4>
+            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+              You're all caught up! You can import your real coursework anytime from the Canvas iCal Feed tab.
             </p>
           </div>
         ) : (
-          <AnimatePresence mode="popLayout">
+          <AnimatePresence>
             {filteredDeadlines.map((dl) => {
               const course = courses.find((c) => c.id === dl.courseId);
-              const isExam = dl.type === 'Exam';
+              const daysLeft = getDaysRemaining(dl.dueDate, dl.dueTime);
+              const isUrgent = daysLeft <= 2 && dl.status !== 'completed';
               const isCompleted = dl.status === 'completed';
-              const timeRemaining = getDaysRemaining(dl.dueDate, dl.dueTime);
 
               return (
                 <motion.div
                   key={dl.id}
-                  id={`deadline-card-${dl.id}`}
                   layout
-                  initial={{ opacity: 0, y: 6 }}
+                  initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.98 }}
-                  transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                  className={`p-5 rounded-2xl border transition-all ${
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className={`bg-white rounded-2xl border p-4 sm:p-5 transition-all shadow-xs ${
                     isCompleted
-                      ? 'bg-slate-50/60 border-slate-200 opacity-60'
-                      : isExam
-                      ? 'bg-white border-red-200 shadow-xs hover:border-red-300'
-                      : 'bg-white border-slate-200 shadow-xs hover:border-slate-300'
+                      ? 'border-slate-200 opacity-60 bg-slate-50/50'
+                      : isUrgent
+                      ? 'border-amber-300 bg-amber-50/20'
+                      : 'border-slate-200 hover:border-slate-300'
                   }`}
                 >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    {/* Left details */}
-                    <div className="flex items-start gap-3.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    {/* Left: Checkbox & Info */}
+                    <div className="flex items-start gap-3.5 flex-1 min-w-0">
                       <button
-                        onClick={() => handleToggleComplete(dl.id)}
-                        className={`mt-1 p-1 rounded-full transition-transform active:scale-90 ${
+                        onClick={() => handleToggleComplete(dl)}
+                        className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-colors shrink-0 mt-0.5 ${
                           isCompleted
-                            ? 'text-emerald-600 hover:text-slate-400'
-                            : 'text-slate-300 hover:text-emerald-600'
+                            ? 'bg-emerald-600 border-emerald-600 text-white'
+                            : 'border-slate-300 hover:border-slate-400 bg-white'
                         }`}
-                        title={isCompleted ? 'Mark as Incomplete' : 'Mark as Completed'}
                       >
-                        <CheckCircle2 className="w-6 h-6" />
+                        {isCompleted && <CheckCircle2 className="w-4 h-4" />}
                       </button>
 
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                          {course && (
-                            <button
-                              onClick={() => onSelectCourse(course)}
-                              className="font-mono font-bold text-xs px-2.5 py-0.5 rounded-md text-white hover:opacity-90 transition-opacity whitespace-nowrap"
-                              style={{ backgroundColor: course.color }}
-                            >
-                              {course.code}
-                            </button>
-                          )}
-
-                          <span
-                            className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded whitespace-nowrap ${
-                              isExam
-                                ? 'bg-red-50 text-red-700 border border-red-200'
-                                : dl.type === 'Project'
-                                ? 'bg-purple-50 text-purple-700 border border-purple-200'
-                                : 'bg-blue-50 text-blue-700 border border-blue-200'
-                            }`}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <button
+                            onClick={() => course && onSelectCourse(course)}
+                            className="text-xs font-bold text-[#0B2545] hover:underline"
                           >
+                            {course?.code || 'General'}
+                          </button>
+                          <span className="text-slate-300">•</span>
+                          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                             {dl.type}
                           </span>
-
-                          <span
-                            className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full whitespace-nowrap ${
-                              timeRemaining.includes('today') || timeRemaining.includes('tomorrow')
-                                ? 'bg-amber-100 text-amber-900 font-extrabold animate-pulse'
-                                : 'bg-slate-100 text-slate-700'
-                            }`}
-                          >
-                            {timeRemaining}
-                          </span>
-
                           {dl.weightPercentage && (
-                            <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">
-                              Weight: {dl.weightPercentage}%
-                            </span>
+                            <>
+                              <span className="text-slate-300">•</span>
+                              <span className="text-[11px] font-bold text-[#D4AF37]">
+                                {dl.weightPercentage}% of Grade
+                              </span>
+                            </>
                           )}
                         </div>
 
-                        <h3
-                          className={`text-base font-bold text-slate-900 ${
+                        <h4
+                          className={`text-sm font-bold text-slate-900 truncate ${
                             isCompleted ? 'line-through text-slate-400' : ''
                           }`}
                         >
                           {dl.title}
-                        </h3>
+                        </h4>
 
                         {dl.description && (
-                          <p className="text-xs text-slate-600 mt-1 max-w-2xl leading-relaxed">
-                            {dl.description}
-                          </p>
+                          <p className="text-xs text-slate-500 mt-1 line-clamp-1">{dl.description}</p>
                         )}
 
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 mt-2">
-                          <span className="flex items-center gap-1 font-semibold text-slate-700">
-                            <Clock className="w-3.5 h-3.5 text-[#0B2545]" />
-                            <span className="font-mono">
-                              {dl.dueDate} • {dl.dueTime}
-                            </span>
+                        <div className="flex flex-wrap items-center gap-3 mt-2 text-[11px] text-slate-500">
+                          <span className="flex items-center gap-1 font-medium">
+                            <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                            <span>{dl.dueDate}</span>
                           </span>
-
-                          {dl.location && (
-                            <span className="flex items-center gap-1 text-slate-700">
-                              <MapPin className="w-3.5 h-3.5 text-rose-500" />
-                              <span>{dl.location}</span>
-                            </span>
-                          )}
-
-                          <span className="flex items-center gap-1 text-slate-500 text-[11px] font-medium">
-                            <Share2 className="w-3 h-3 text-[#0B2545]" />
+                          <span className="flex items-center gap-1 font-medium">
+                            <Clock className="w-3.5 h-3.5 text-slate-400" />
+                            <span>{dl.dueTime}</span>
+                          </span>
+                          <span className="flex items-center gap-1 text-[#0B2545] font-semibold">
+                            <Sparkles className="w-3 h-3 text-[#D4AF37]" />
                             <span>Teams / Outlook Synced</span>
                           </span>
                         </div>
@@ -410,6 +395,16 @@ export const DeadlinesManager: React.FC<DeadlinesManagerProps> = ({
                         <span>Canvas</span>
                         <ExternalLink className="w-3.5 h-3.5 text-red-600 shrink-0" />
                       </a>
+
+                      {onDeleteDeadline && (
+                        <button
+                          onClick={() => onDeleteDeadline(dl.id)}
+                          className="p-1.5 rounded-xl border border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors"
+                          title="Delete this deadline"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </motion.div>
@@ -419,7 +414,7 @@ export const DeadlinesManager: React.FC<DeadlinesManagerProps> = ({
         )}
       </div>
 
-      {/* Add Deadline Modal: Clean form, 2x button padding math */}
+      {/* Add Deadline Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
           <motion.div
@@ -490,10 +485,9 @@ export const DeadlinesManager: React.FC<DeadlinesManagerProps> = ({
                     required
                     value={newDueDate}
                     onChange={(e) => setNewDueDate(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300"
                   />
                 </div>
-
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Due Time</label>
                   <input
@@ -501,24 +495,23 @@ export const DeadlinesManager: React.FC<DeadlinesManagerProps> = ({
                     required
                     value={newDueTime}
                     onChange={(e) => setNewDueTime(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Grade Weight (%)</label>
+                  <label className="block font-bold text-slate-700 mb-1">Weight (% of Grade)</label>
                   <input
                     type="number"
-                    min={0}
-                    max={100}
+                    min="0"
+                    max="100"
                     value={newWeight}
                     onChange={(e) => setNewWeight(Number(e.target.value))}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300"
                   />
                 </div>
-
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Priority</label>
                   <select
@@ -526,63 +519,59 @@ export const DeadlinesManager: React.FC<DeadlinesManagerProps> = ({
                     onChange={(e) => setNewPriority(e.target.value as PriorityLevel)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
                   >
-                    <option value="high">High Priority</option>
-                    <option value="medium">Medium Priority</option>
-                    <option value="low">Low Priority</option>
+                    <option value="high">High (Red)</option>
+                    <option value="medium">Medium (Amber)</option>
+                    <option value="low">Low (Slate)</option>
                   </select>
                 </div>
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Physical Classroom / Exam Hall (Optional)
-                </label>
+                <label className="block font-bold text-slate-700 mb-1">Location / Venue</label>
                 <input
                   type="text"
-                  placeholder="e.g. Main Auditorium 1, Seat B-14 or Lab B204"
+                  placeholder="e.g. Building A Room A203 or Canvas Online"
                   value={newLocation}
                   onChange={(e) => setNewLocation(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Canvas Assignment Direct URL (Optional)
-                </label>
+                <label className="block font-bold text-slate-700 mb-1">Canvas / Submission URL</label>
                 <input
                   type="url"
-                  placeholder="https://vinuni.instructure.com/courses/.../assignments/..."
+                  placeholder="https://vinuni.instructure.com/courses/..."
                   value={newSubmissionUrl}
                   onChange={(e) => setNewSubmissionUrl(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono text-xs"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Description / Notes</label>
+                <label className="block font-bold text-slate-700 mb-1">Instructions / Description</label>
                 <textarea
                   rows={2}
-                  placeholder="Instructions, chapters covered, submission guidelines..."
+                  placeholder="Brief description of requirements..."
                   value={newDescription}
                   onChange={(e) => setNewDescription(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
                 />
               </div>
 
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 font-bold text-slate-600 hover:text-slate-900 rounded-xl transition-colors"
+                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-bold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 font-bold text-white bg-[#0B2545] hover:bg-[#134074] rounded-xl shadow-xs transition-colors"
+                  className="px-5 py-2 bg-[#0B2545] hover:bg-[#134074] text-white font-bold rounded-xl shadow-xs"
                 >
-                  Save & Push Alert
+                  Save Deadline
                 </button>
               </div>
             </form>
