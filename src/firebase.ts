@@ -75,7 +75,7 @@ export async function ensureSignedIn(): Promise<User> {
   });
 }
 
-// Robust Google login: attempts popup first, falls back to redirect if popup is blocked
+// Google login with popup and fallback
 export async function loginWithGoogle(): Promise<User | null> {
   try {
     const result = await signInWithPopup(auth, googleProvider);
@@ -87,7 +87,6 @@ export async function loginWithGoogle(): Promise<User | null> {
       error?.code === 'auth/popup-closed-by-user' ||
       error?.code === 'auth/cancelled-popup-request'
     ) {
-      // In embedded iframe contexts or strict browsers, redirect flow can be used
       try {
         await signInWithRedirect(auth, googleProvider);
         return null;
@@ -201,6 +200,17 @@ export async function removeDeadlineFromFirebase(userId: string, deadlineId: str
   await deleteDoc(dlDoc);
 }
 
+export async function clearAllDeadlinesFromFirebase(userId: string): Promise<void> {
+  const deadlinesCol = collection(db, 'users', userId, 'deadlines');
+  const snap = await getDocs(deadlinesCol);
+  if (snap.empty) return;
+  const batch = writeBatch(db);
+  snap.forEach((docSnap) => {
+    batch.delete(docSnap.ref);
+  });
+  await batch.commit();
+}
+
 export async function batchSyncDeadlinesToFirebase(
   userId: string,
   deadlines: Deadline[]
@@ -236,7 +246,6 @@ export async function seedInitialFirestoreData(
   const coursesCol = collection(db, 'users', userId, 'courses');
   const snap = await getDocs(coursesCol);
 
-  // If user already has courses in their cloud account, do not overwrite!
   if (!snap.empty) {
     return false;
   }
@@ -262,7 +271,7 @@ export async function seedInitialFirestoreData(
     { merge: true }
   );
 
-  // Seed default template courses so new user doesn't start with a blank screen
+  // Seed default template courses
   initialCourses.forEach((c) => {
     const cleanId = c.id.replace(/[^a-zA-Z0-9_\-]/g, '_');
     const cDoc = doc(db, 'users', userId, 'courses', cleanId);
