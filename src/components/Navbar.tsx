@@ -129,7 +129,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             </div>
 
-            {/* Account & Customizable User Switcher Button */}
+            {/* Account & Full VinUni Mail Button */}
             {onOpenAuthModal && (
               <button
                 type="button"
@@ -146,8 +146,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 ) : (
                   <UserIcon className="w-3.5 h-3.5 text-blue-600" />
                 )}
-                <span className="max-w-[110px] truncate">
-                  {userEmail || 'My Account'}
+                <span className="max-w-[170px] sm:max-w-[210px] truncate font-medium">
+                  {userEmail || 'student@vinuni.edu.vn'}
                 </span>
               </button>
             )}
