@@ -15,6 +15,8 @@ import {
   getAuth,
   signInAnonymously,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   signOut,
   onAuthStateChanged,
@@ -22,7 +24,7 @@ import {
   Auth,
 } from 'firebase/auth';
 import firebaseConfig from '../firebase-applet-config.json';
-import { Course, Deadline, NotificationItem } from './types';
+import { Course, Deadline } from './types';
 
 // Initialize Firebase App singleton
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
@@ -35,8 +37,11 @@ export const db: Firestore = firebaseConfig.firestoreDatabaseId
 // Initialize Auth
 export const auth: Auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({
+  prompt: 'select_account',
+});
 
-// Connection verification test as required by Firebase skill
+// Connection verification test
 export async function testFirebaseConnection(): Promise<boolean> {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
@@ -47,7 +52,6 @@ export async function testFirebaseConnection(): Promise<boolean> {
       console.warn('[Firebase] Client is offline or Firestore is temporarily unreachable.');
       return false;
     }
-    // Expected when test doc does not exist, but connection succeeds
     return true;
   }
 }
@@ -71,16 +75,46 @@ export async function ensureSignedIn(): Promise<User> {
   });
 }
 
-export async function loginWithGoogle(): Promise<User> {
-  const result = await signInWithPopup(auth, googleProvider);
-  return result.user;
+// Robust Google login: attempts popup first, falls back to redirect if popup is blocked
+export async function loginWithGoogle(): Promise<User | null> {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    return result.user;
+  } catch (error: any) {
+    console.warn('[Firebase Auth] Popup failed or blocked:', error?.code, error?.message);
+    if (
+      error?.code === 'auth/popup-blocked' ||
+      error?.code === 'auth/popup-closed-by-user' ||
+      error?.code === 'auth/cancelled-popup-request'
+    ) {
+      // In embedded iframe contexts or strict browsers, redirect flow can be used
+      try {
+        await signInWithRedirect(auth, googleProvider);
+        return null;
+      } catch (redirectErr) {
+        console.error('[Firebase Auth] Redirect failed:', redirectErr);
+        throw redirectErr;
+      }
+    }
+    throw error;
+  }
+}
+
+export async function checkRedirectAuthResult(): Promise<User | null> {
+  try {
+    const result = await getRedirectResult(auth);
+    return result ? result.user : null;
+  } catch (e) {
+    console.warn('[Firebase Auth] No redirect result:', e);
+    return null;
+  }
 }
 
 export async function logoutUser(): Promise<void> {
   await signOut(auth);
 }
 
-// Real-Time Subscriptions
+// Real-Time Subscriptions scoped per user
 export function subscribeToRealtimeCourses(
   userId: string,
   onUpdate: (courses: Course[]) => void,
@@ -116,7 +150,6 @@ export function subscribeToRealtimeDeadlines(
       snapshot.forEach((docSnap) => {
         deadlines.push(docSnap.data() as Deadline);
       });
-      // Sort chronologically
       deadlines.sort((a, b) => {
         const dateA = new Date(`${a.dueDate}T${a.dueTime || '23:59'}:00`).getTime();
         const dateB = new Date(`${b.dueDate}T${b.dueTime || '23:59'}:00`).getTime();
@@ -143,7 +176,7 @@ export function subscribeToUserProfile(
   });
 }
 
-// Data Mutation Functions
+// Data Mutation Functions scoped per user
 export async function syncCourseToFirebase(userId: string, course: Course): Promise<void> {
   const cleanId = course.id.replace(/[^a-zA-Z0-9_\-]/g, '_');
   const courseDoc = doc(db, 'users', userId, 'courses', cleanId);
@@ -185,16 +218,25 @@ export async function batchSyncDeadlinesToFirebase(
   return deadlines.length;
 }
 
+// Seeds user profile and initial starter schedule if user collection is totally empty
 export async function seedInitialFirestoreData(
   userId: string,
   initialCourses: Course[],
   initialDeadlines: Deadline[],
-  studentProfile?: any
+  studentProfile?: {
+    studentId?: string;
+    studentName?: string;
+    email?: string;
+    college?: string;
+    program?: string;
+    cohort?: string;
+    photoURL?: string;
+  }
 ): Promise<boolean> {
   const coursesCol = collection(db, 'users', userId, 'courses');
   const snap = await getDocs(coursesCol);
 
-  // If already has data, do not overwrite
+  // If user already has courses in their cloud account, do not overwrite!
   if (!snap.empty) {
     return false;
   }
@@ -208,25 +250,26 @@ export async function seedInitialFirestoreData(
     {
       uid: userId,
       studentId: studentProfile?.studentId || '26an.ntt',
-      studentName: studentProfile?.studentName || 'Nguyen Trong Thien An',
-      email: studentProfile?.email || '26an.ntt@vinuni.edu.vn',
+      studentName: studentProfile?.studentName || 'Student',
+      email: studentProfile?.email || 'student@vinuni.edu.vn',
       college: studentProfile?.college || 'CECS',
       program: studentProfile?.program || 'B.Sc. in Computer Science',
       cohort: studentProfile?.cohort || 'Class of 2026',
+      photoURL: studentProfile?.photoURL || '',
       gpa: 3.84,
       updatedAt: new Date().toISOString(),
     },
     { merge: true }
   );
 
-  // Seed initial courses
+  // Seed default template courses so new user doesn't start with a blank screen
   initialCourses.forEach((c) => {
     const cleanId = c.id.replace(/[^a-zA-Z0-9_\-]/g, '_');
     const cDoc = doc(db, 'users', userId, 'courses', cleanId);
     batch.set(cDoc, { ...c, userId });
   });
 
-  // Seed initial deadlines
+  // Seed default template deadlines
   initialDeadlines.forEach((d) => {
     const cleanId = d.id.replace(/[^a-zA-Z0-9_\-]/g, '_');
     const dDoc = doc(db, 'users', userId, 'deadlines', cleanId);
@@ -234,6 +277,6 @@ export async function seedInitialFirestoreData(
   });
 
   await batch.commit();
-  console.log('[Firebase] Successfully seeded initial courses and deadlines to Firestore.');
+  console.log(`[Firebase] Initial starter courses and deadlines seeded for user ${userId}.`);
   return true;
 }

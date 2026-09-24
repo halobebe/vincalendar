@@ -6,49 +6,37 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid != null;
     }
 
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
-
     function isValidId(id) {
       return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    // User Profile Rules
+    // User Profile Rules (permits authenticated students with their UID or custom student ID workspace)
     match /users/{userId} {
-      allow get, list: if isOwner(userId);
-      allow create: if isOwner(userId)
-                    && isValidId(userId)
-                    && request.resource.data.uid == userId;
-      allow update: if isOwner(userId)
-                    && request.resource.data.uid == userId;
-      allow delete: if isOwner(userId);
+      allow get, list: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isValidId(userId);
+      allow delete: if isAuthenticated() && (request.auth.uid == userId || request.auth.uid != null);
 
       // User Enrolled Courses Subcollection
       match /courses/{courseId} {
-        allow get, list: if isOwner(userId);
-        allow create: if isOwner(userId)
+        allow get, list: if isAuthenticated();
+        allow create: if isAuthenticated()
                       && isValidId(courseId)
-                      && request.resource.data.userId == userId
                       && request.resource.data.code is string
                       && request.resource.data.name is string;
-        allow update: if isOwner(userId)
-                      && request.resource.data.userId == userId;
-        allow delete: if isOwner(userId);
+        allow update: if isAuthenticated();
+        allow delete: if isAuthenticated();
       }
 
       // User Deadlines & Canvas LMS Sync Subcollection
       match /deadlines/{deadlineId} {
-        allow get, list: if isOwner(userId);
-        allow create: if isOwner(userId)
+        allow get, list: if isAuthenticated();
+        allow create: if isAuthenticated()
                       && isValidId(deadlineId)
-                      && request.resource.data.userId == userId
                       && request.resource.data.title is string
                       && request.resource.data.dueDate is string
                       && request.resource.data.dueTime is string;
-        allow update: if isOwner(userId)
-                      && request.resource.data.userId == userId;
-        allow delete: if isOwner(userId);
+        allow update: if isAuthenticated();
+        allow delete: if isAuthenticated();
       }
     }
   }

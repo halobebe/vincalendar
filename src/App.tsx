@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   INITIAL_COURSES,
   INITIAL_DEADLINES,
@@ -26,6 +26,7 @@ import { HomeScreenWidget } from './components/HomeScreenWidget';
 import { CourseDetailModal } from './components/CourseDetailModal';
 import { AddEditCourseModal } from './components/AddEditCourseModal';
 import { NotificationDrawer } from './components/NotificationDrawer';
+import { AuthModal } from './components/AuthModal';
 import {
   ensureSignedIn,
   testFirebaseConnection,
@@ -38,23 +39,24 @@ import {
   seedInitialFirestoreData,
   loginWithGoogle,
   logoutUser,
+  checkRedirectAuthResult,
   auth,
 } from './firebase';
 import { User, onAuthStateChanged } from 'firebase/auth';
 
 export default function App() {
-  // Persistence state
+  // Current active account / workspace identifier
+  const [activeAccountKey, setActiveAccountKey] = useState<string>(() => {
+    return localStorage.getItem('vinuni_active_account_key') || '';
+  });
+
+  // State
   const [courses, setCourses] = useState<Course[]>(() => {
-    const saved = localStorage.getItem('vinuni_courses');
+    const key = localStorage.getItem('vinuni_active_account_key') || 'default';
+    const saved = localStorage.getItem(`vinuni_courses_${key}`);
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
-        // If legacy mock course exists, migrate cleanly to the new enrolled schedule from the image
-        if (Array.isArray(parsed) && parsed.some((c: Course) => c.id === 'course-comp2030')) {
-          localStorage.setItem('vinuni_courses', JSON.stringify(INITIAL_COURSES));
-          return INITIAL_COURSES;
-        }
-        return parsed;
+        return JSON.parse(saved);
       } catch {
         return INITIAL_COURSES;
       }
@@ -63,15 +65,11 @@ export default function App() {
   });
 
   const [deadlines, setDeadlines] = useState<Deadline[]>(() => {
-    const saved = localStorage.getItem('vinuni_deadlines');
+    const key = localStorage.getItem('vinuni_active_account_key') || 'default';
+    const saved = localStorage.getItem(`vinuni_deadlines_${key}`);
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.some((d: Deadline) => d.id === 'dl-comp2030-1')) {
-          localStorage.setItem('vinuni_deadlines', JSON.stringify(INITIAL_DEADLINES));
-          return INITIAL_DEADLINES;
-        }
-        return parsed;
+        return JSON.parse(saved);
       } catch {
         return INITIAL_DEADLINES;
       }
@@ -80,11 +78,18 @@ export default function App() {
   });
 
   const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
-    const saved = localStorage.getItem('vinuni_notifications');
-    return saved ? JSON.parse(saved) : INITIAL_NOTIFICATIONS;
+    const key = localStorage.getItem('vinuni_active_account_key') || 'default';
+    const saved = localStorage.getItem(`vinuni_notifications_${key}`);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return INITIAL_NOTIFICATIONS;
+      }
+    }
+    return INITIAL_NOTIFICATIONS;
   });
 
-  // UI state
   const [currentView, setCurrentView] = useState<CalendarViewMode>('week');
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [courseToEdit, setCourseToEdit] = useState<Course | null>(null);
@@ -94,50 +99,87 @@ export default function App() {
   } | null>(null);
   const [showAddCourse, setShowAddCourse] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isCloudConnected, setIsCloudConnected] = useState<boolean>(true);
+  const [authError, setAuthError] = useState<string | null>(null);
 
-  // Initialize Firebase, Authentication, and Realtime Listeners
+  // Active sync user ID: either custom student ID or Firebase Auth UID
+  const effectiveUserId = activeAccountKey || currentUser?.uid || 'guest';
+
+  // Subscriptions cleaner ref
+  const unsubscribeListenersRef = useRef<(() => void) | null>(null);
+
+  // Bind real-time cloud listeners whenever the effective user changes
+  const bindUserCloudListeners = (userId: string, userMeta?: { email?: string; displayName?: string; photoURL?: string }) => {
+    if (unsubscribeListenersRef.current) {
+      unsubscribeListenersRef.current();
+      unsubscribeListenersRef.current = null;
+    }
+
+    if (!userId) return;
+
+    // Seed initial schedule if user's cloud collection is blank
+    seedInitialFirestoreData(userId, INITIAL_COURSES, INITIAL_DEADLINES, {
+      studentId: userId,
+      studentName: userMeta?.displayName || 'Student',
+      email: userMeta?.email || `${userId}@vinuni.edu.vn`,
+      photoURL: userMeta?.photoURL || '',
+    }).catch(console.warn);
+
+    // Subscribe to realtime Courses
+    const unsubCourses = subscribeToRealtimeCourses(
+      userId,
+      (cloudCourses) => {
+        if (cloudCourses && cloudCourses.length > 0) {
+          setCourses(cloudCourses);
+        }
+      },
+      () => setIsCloudConnected(false)
+    );
+
+    // Subscribe to realtime Deadlines
+    const unsubDeadlines = subscribeToRealtimeDeadlines(
+      userId,
+      (cloudDeadlines) => {
+        if (cloudDeadlines && cloudDeadlines.length > 0) {
+          setDeadlines(cloudDeadlines);
+        }
+      },
+      () => setIsCloudConnected(false)
+    );
+
+    unsubscribeListenersRef.current = () => {
+      unsubCourses();
+      unsubDeadlines();
+    };
+  };
+
+  // Initialize Firebase and Authentication
   useEffect(() => {
     testFirebaseConnection();
 
-    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+    // Check redirect login results
+    checkRedirectAuthResult()
+      .then((user) => {
+        if (user) {
+          setCurrentUser(user);
+        }
+      })
+      .catch((e) => console.warn('Redirect auth check:', e));
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (user) {
         setCurrentUser(user);
         setIsCloudConnected(true);
-
-        try {
-          await seedInitialFirestoreData(user.uid, courses, deadlines);
-        } catch (seedErr) {
-          console.warn('[Firebase] Seed info:', seedErr);
+        // If no custom student ID override is active, bind to Google/Firebase UID
+        if (!activeAccountKey) {
+          bindUserCloudListeners(user.uid, {
+            email: user.email || undefined,
+            displayName: user.displayName || undefined,
+            photoURL: user.photoURL || undefined,
+          });
         }
-
-        // Realtime Courses sync
-        const unsubCourses = subscribeToRealtimeCourses(
-          user.uid,
-          (cloudCourses) => {
-            if (cloudCourses && cloudCourses.length > 0) {
-              setCourses(cloudCourses);
-            }
-          },
-          () => setIsCloudConnected(false)
-        );
-
-        // Realtime Deadlines sync
-        const unsubDeadlines = subscribeToRealtimeDeadlines(
-          user.uid,
-          (cloudDeadlines) => {
-            if (cloudDeadlines && cloudDeadlines.length > 0) {
-              setDeadlines(cloudDeadlines);
-            }
-          },
-          () => setIsCloudConnected(false)
-        );
-
-        return () => {
-          unsubCourses();
-          unsubDeadlines();
-        };
       } else {
         ensureSignedIn().catch((err) => {
           console.warn('[Firebase] Anonymous sign-in attempt:', err);
@@ -145,39 +187,87 @@ export default function App() {
       }
     });
 
-    return () => unsubscribeAuth();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeListenersRef.current) {
+        unsubscribeListenersRef.current();
+      }
+    };
   }, []);
 
-  // Sync to local storage as fallback
+  // Handle custom student ID account switch
   useEffect(() => {
-    localStorage.setItem('vinuni_courses', JSON.stringify(courses));
-  }, [courses]);
+    if (activeAccountKey) {
+      bindUserCloudListeners(activeAccountKey, {
+        displayName: activeAccountKey,
+        email: `${activeAccountKey}@vinuni.edu.vn`,
+      });
+    }
+  }, [activeAccountKey]);
+
+  // Sync to local storage scoped by user ID
+  useEffect(() => {
+    const key = activeAccountKey || currentUser?.uid || 'default';
+    localStorage.setItem(`vinuni_courses_${key}`, JSON.stringify(courses));
+  }, [courses, activeAccountKey, currentUser]);
 
   useEffect(() => {
-    localStorage.setItem('vinuni_deadlines', JSON.stringify(deadlines));
-  }, [deadlines]);
+    const key = activeAccountKey || currentUser?.uid || 'default';
+    localStorage.setItem(`vinuni_deadlines_${key}`, JSON.stringify(deadlines));
+  }, [deadlines, activeAccountKey, currentUser]);
 
   useEffect(() => {
-    localStorage.setItem('vinuni_notifications', JSON.stringify(notifications));
-  }, [notifications]);
+    const key = activeAccountKey || currentUser?.uid || 'default';
+    localStorage.setItem(`vinuni_notifications_${key}`, JSON.stringify(notifications));
+  }, [notifications, activeAccountKey, currentUser]);
 
   // Auth Action Handlers
   const handleSignInGoogle = async () => {
+    setAuthError(null);
     try {
       const user = await loginWithGoogle();
-      setCurrentUser(user);
-    } catch (e) {
-      console.warn('Google sign-in:', e);
+      if (user) {
+        // Clear any custom manual override so we use the real Google account
+        setActiveAccountKey('');
+        localStorage.removeItem('vinuni_active_account_key');
+        setCurrentUser(user);
+        bindUserCloudListeners(user.uid, {
+          email: user.email || undefined,
+          displayName: user.displayName || undefined,
+          photoURL: user.photoURL || undefined,
+        });
+      }
+    } catch (e: any) {
+      console.warn('Google sign-in error:', e);
+      setAuthError(
+        e?.code === 'auth/unauthorized-domain'
+          ? 'Notice: This domain is awaiting Firebase Auth domain whitelist. You can still use the "Switch to Your Student ID" below to customize your schedule immediately!'
+          : e?.message || 'Failed to sign in with Google.'
+      );
+      throw e;
     }
   };
 
   const handleSignOut = async () => {
     try {
       await logoutUser();
-      await ensureSignedIn();
+      setActiveAccountKey('');
+      localStorage.removeItem('vinuni_active_account_key');
+      const anonUser = await ensureSignedIn();
+      setCurrentUser(anonUser);
     } catch (e) {
       console.warn('Logout error:', e);
     }
+  };
+
+  const handleCustomAccountSwitch = (customIdentifier: string) => {
+    const cleanId = customIdentifier.trim().toLowerCase().replace(/[^a-z0-9_\-]/g, '_');
+    setActiveAccountKey(cleanId);
+    localStorage.setItem('vinuni_active_account_key', cleanId);
+    bindUserCloudListeners(cleanId, {
+      displayName: customIdentifier,
+      email: `${customIdentifier}@vinuni.edu.vn`,
+    });
   };
 
   // Course management handlers
@@ -192,24 +282,21 @@ export default function App() {
       return [...prev, savedCourse];
     });
 
-    if (currentUser) {
-      syncCourseToFirebase(currentUser.uid, savedCourse).catch(console.error);
+    if (effectiveUserId) {
+      syncCourseToFirebase(effectiveUserId, savedCourse).catch(console.error);
     }
 
     const isUpdate = courses.some((c) => c.id === savedCourse.id);
     const newNotif: NotificationItem = {
       id: `notif-${Date.now()}`,
-      title: isUpdate ? `Course Updated: ${savedCourse.code}` : `Course Added: ${savedCourse.code}`,
-      body: `${savedCourse.name} has been saved to your timetable.`,
+      courseId: savedCourse.id,
+      title: isUpdate ? 'Course Updated' : 'Course Added',
+      message: `${savedCourse.code} - ${savedCourse.name} schedule was updated.`,
       timestamp: 'Just now',
-      type: 'class_reminder',
       read: false,
-      courseCode: savedCourse.code,
+      type: 'course',
     };
     setNotifications((prev) => [newNotif, ...prev]);
-    setCourseToEdit(null);
-    setAddSlotPreset(null);
-    setShowAddCourse(false);
   };
 
   const handleDeleteCourse = (courseId: string) => {
@@ -218,41 +305,41 @@ export default function App() {
     setDeadlines((prev) => prev.filter((d) => d.courseId !== courseId));
     setSelectedCourse(null);
 
-    if (currentUser) {
-      removeCourseFromFirebase(currentUser.uid, courseId).catch(console.error);
+    if (effectiveUserId) {
+      removeCourseFromFirebase(effectiveUserId, courseId).catch(console.error);
     }
 
     if (course) {
       const notif: NotificationItem = {
         id: `notif-${Date.now()}`,
-        title: `Course Removed: ${course.code}`,
-        body: `${course.name} and associated items removed from your calendar.`,
+        courseId: course.id,
+        title: 'Course Dropped',
+        message: `${course.code} has been removed from your semester plan.`,
         timestamp: 'Just now',
-        type: 'class_reminder',
         read: false,
-        courseCode: course.code,
+        type: 'course',
       };
       setNotifications((prev) => [notif, ...prev]);
     }
   };
 
+  // Deadline Handlers
   const handleAddDeadline = (newDeadline: Deadline) => {
     setDeadlines((prev) => [newDeadline, ...prev]);
 
-    if (currentUser) {
-      syncDeadlineToFirebase(currentUser.uid, newDeadline).catch(console.error);
+    if (effectiveUserId) {
+      syncDeadlineToFirebase(effectiveUserId, newDeadline).catch(console.error);
     }
 
     const course = courses.find((c) => c.id === newDeadline.courseId);
     const newNotif: NotificationItem = {
       id: `notif-${Date.now()}`,
-      title: `Scheduled: ${newDeadline.title}`,
-      body: `Due on ${newDeadline.dueDate} at ${newDeadline.dueTime} (${course?.code || 'Canvas'}).`,
+      courseId: newDeadline.courseId,
+      title: `New ${newDeadline.type}: ${newDeadline.title}`,
+      message: `Due on ${newDeadline.dueDate} at ${newDeadline.dueTime} (${course?.code || 'Course'}).`,
       timestamp: 'Just now',
-      type: newDeadline.type === 'Exam' ? 'exam' : 'deadline',
       read: false,
-      courseCode: course?.code,
-      deadlineId: newDeadline.id,
+      type: 'deadline',
     };
     setNotifications((prev) => [newNotif, ...prev]);
   };
@@ -260,7 +347,6 @@ export default function App() {
   const handleImportCanvasDeadlines = (importedDeadlines: Deadline[]) => {
     let newItemsToSave: Deadline[] = [];
     setDeadlines((prev) => {
-      // Merge and prevent duplicates based on title and dueDate
       const existingKeys = new Set(prev.map((d) => `${d.title.toLowerCase().trim()}_${d.dueDate}`));
       newItemsToSave = importedDeadlines.filter(
         (d) => !existingKeys.has(`${d.title.toLowerCase().trim()}_${d.dueDate}`)
@@ -268,25 +354,25 @@ export default function App() {
       return [...newItemsToSave, ...prev];
     });
 
-    if (currentUser && newItemsToSave.length > 0) {
-      batchSyncDeadlinesToFirebase(currentUser.uid, newItemsToSave).catch(console.error);
+    if (effectiveUserId && newItemsToSave.length > 0) {
+      batchSyncDeadlinesToFirebase(effectiveUserId, newItemsToSave).catch(console.error);
     }
 
     const newNotif: NotificationItem = {
       id: `notif-${Date.now()}`,
       title: 'Canvas iCal Feed Synced',
-      body: `Imported ${importedDeadlines.length} live Canvas assignment deadlines into your timetable calendar.`,
+      message: `Successfully synchronized ${importedDeadlines.length} assignments from VinUniversity Canvas LMS.`,
       timestamp: 'Just now',
-      type: 'sync',
       read: false,
+      type: 'canvas',
     };
     setNotifications((prev) => [newNotif, ...prev]);
   };
 
   const handleToggleDeadlineStatus = (deadlineId: string) => {
     const target = deadlines.find((d) => d.id === deadlineId);
-    if (target && currentUser) {
-      syncDeadlineToFirebase(currentUser.uid, {
+    if (target && effectiveUserId) {
+      syncDeadlineToFirebase(effectiveUserId, {
         ...target,
         status: target.status === 'completed' ? 'pending' : 'completed',
       }).catch(console.error);
@@ -295,8 +381,8 @@ export default function App() {
     setDeadlines((prev) =>
       prev.map((d) => {
         if (d.id === deadlineId) {
-          const newStatus = d.status === 'completed' ? 'pending' : 'completed';
-          return { ...d, status: newStatus };
+          const nextStatus = d.status === 'completed' ? 'pending' : 'completed';
+          return { ...d, status: nextStatus };
         }
         return d;
       })
@@ -305,8 +391,8 @@ export default function App() {
 
   const handleToggleReminder = (deadlineId: string) => {
     const target = deadlines.find((d) => d.id === deadlineId);
-    if (target && currentUser) {
-      syncDeadlineToFirebase(currentUser.uid, {
+    if (target && effectiveUserId) {
+      syncDeadlineToFirebase(effectiveUserId, {
         ...target,
         reminderSet: !target.reminderSet,
       }).catch(console.error);
@@ -318,37 +404,39 @@ export default function App() {
   };
 
   const handleToggleChapterRead = (courseId: string, chapterNumber: number) => {
-    setCourses((prev) =>
-      prev.map((c) => {
-        if (c.id === courseId) {
-          const updatedChapters = c.textbook.chapters.map((ch) =>
-            ch.number === chapterNumber ? { ...ch, isRead: !ch.isRead } : ch
-          );
-          return {
-            ...c,
-            textbook: { ...c.textbook, chapters: updatedChapters },
-          };
-        }
-        return c;
-      })
-    );
-
-    if (selectedCourse && selectedCourse.id === courseId) {
-      setSelectedCourse((prev) => {
-        if (!prev) return null;
-        const updatedChapters = prev.textbook.chapters.map((ch) =>
+    setCourses((prev) => {
+      const updated = prev.map((course) => {
+        if (course.id !== courseId || !course.textbook) return course;
+        const newChapters = course.textbook.chapters.map((ch) =>
           ch.number === chapterNumber ? { ...ch, isRead: !ch.isRead } : ch
         );
-        return {
-          ...prev,
-          textbook: { ...prev.textbook, chapters: updatedChapters },
+        const updatedCourse = {
+          ...course,
+          textbook: { ...course.textbook, chapters: newChapters },
         };
+        if (effectiveUserId) {
+          syncCourseToFirebase(effectiveUserId, updatedCourse).catch(console.error);
+        }
+        return updatedCourse;
       });
-    }
+      return updated;
+    });
   };
 
+  // Badge count for unread
   const unreadNotificationsCount = notifications.filter((n) => !n.read).length;
 
+  // Active user label
+  const displayedUserLabel =
+    activeAccountKey
+      ? `@${activeAccountKey}`
+      : currentUser?.email
+      ? currentUser.email
+      : currentUser?.isAnonymous
+      ? 'Guest Student'
+      : 'Account';
+
+  // Render view components
   const renderActiveView = () => {
     switch (currentView) {
       case 'week':
@@ -356,38 +444,37 @@ export default function App() {
           <CalendarWeekTimeGrid
             courses={courses}
             deadlines={deadlines}
-            onSelectCourse={(c) => setSelectedCourse(c)}
-            onOpenAddCourse={() => {
-              setCourseToEdit(null);
-              setAddSlotPreset(null);
-              setShowAddCourse(true);
-            }}
-            onOpenAddCourseWithSlot={(day, startTime) => {
+            onSelectCourse={(course) => setSelectedCourse(course)}
+            onAddCourseSlot={(day, startTime) => {
               setCourseToEdit(null);
               setAddSlotPreset({ day, startTime });
               setShowAddCourse(true);
             }}
-            onViewChange={setCurrentView}
           />
         );
+
       case 'month':
         return (
           <CalendarMonthView
             courses={courses}
             deadlines={deadlines}
-            onSelectCourse={(c) => setSelectedCourse(c)}
-            onSelectDeadline={() => setCurrentView('deadlines')}
+            onSelectCourse={(course) => setSelectedCourse(course)}
+            onSelectDate={(dateStr) => {
+              console.log('Selected date:', dateStr);
+            }}
           />
         );
+
       case 'day':
         return (
           <CalendarDayView
             courses={courses}
             deadlines={deadlines}
-            onSelectCourse={(c) => setSelectedCourse(c)}
+            onSelectCourse={(course) => setSelectedCourse(course)}
             onToggleDeadlineStatus={handleToggleDeadlineStatus}
           />
         );
+
       case 'deadlines':
         return (
           <DeadlinesManager
@@ -396,26 +483,29 @@ export default function App() {
             onToggleDeadlineStatus={handleToggleDeadlineStatus}
             onToggleReminder={handleToggleReminder}
             onAddDeadline={handleAddDeadline}
-            onSelectCourse={(c) => setSelectedCourse(c)}
+            onSelectCourse={(course) => setSelectedCourse(course)}
             onNavigateToCanvasFeed={() => setCurrentView('canvas')}
           />
         );
+
       case 'canvas':
         return (
           <CanvasDeadlineTracker
             courses={courses}
-            onImportToCalendar={handleImportCanvasDeadlines}
+            onImportDeadlines={handleImportCanvasDeadlines}
+            existingDeadlines={deadlines}
           />
         );
+
       case 'widgets':
         return (
           <HomeScreenWidget
             courses={courses}
             deadlines={deadlines}
-            onToggleDeadlineStatus={handleToggleDeadlineStatus}
-            onSelectCourse={(c) => setSelectedCourse(c)}
+            onSelectCourse={(course) => setSelectedCourse(course)}
           />
         );
+
       default:
         return null;
     }
@@ -430,9 +520,9 @@ export default function App() {
         unreadNotificationsCount={unreadNotificationsCount}
         onOpenNotifications={() => setShowNotifications(true)}
         isCloudConnected={isCloudConnected}
-        userEmail={currentUser?.email || (currentUser?.isAnonymous ? 'Guest Student' : null)}
-        onSignInGoogle={handleSignInGoogle}
-        onSignOut={handleSignOut}
+        userEmail={displayedUserLabel}
+        userPhoto={currentUser?.photoURL || null}
+        onOpenAuthModal={() => setShowAuthModal(true)}
         onOpenAddCourse={() => {
           setCourseToEdit(null);
           setAddSlotPreset(null);
@@ -465,13 +555,24 @@ export default function App() {
             <span>•</span>
             <span>Canvas Assignment Deadlines & Submissions</span>
             <span>•</span>
-            <span>Manual Course Management</span>
+            <span>Multi-Account Cloud Sync</span>
           </div>
         </div>
       </footer>
 
       {/* MODALS AND DRAWERS */}
-      {/* 1. Course Detail Modal (Classrooms, Textbook, Syllabus, Deadlines, Edit, Remove) */}
+      {/* 1. Account / Auth / Student ID Switcher Modal */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        currentUser={currentUser}
+        onSignInGoogle={handleSignInGoogle}
+        onSignOut={handleSignOut}
+        onCustomAccountSwitch={handleCustomAccountSwitch}
+        authError={authError}
+      />
+
+      {/* 2. Course Detail Modal */}
       <CourseDetailModal
         course={selectedCourse}
         deadlines={deadlines}
@@ -491,7 +592,7 @@ export default function App() {
         onDeleteCourse={handleDeleteCourse}
       />
 
-      {/* 2. Add / Edit Course Modal */}
+      {/* 3. Add / Edit Course Modal */}
       {showAddCourse && (
         <AddEditCourseModal
           courseToEdit={courseToEdit}
@@ -506,7 +607,7 @@ export default function App() {
         />
       )}
 
-      {/* 3. Real-Time Push Notification Drawer */}
+      {/* 4. Real-Time Push Notification Drawer */}
       <NotificationDrawer
         isOpen={showNotifications}
         onClose={() => setShowNotifications(false)}

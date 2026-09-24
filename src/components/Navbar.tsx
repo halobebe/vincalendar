@@ -1,15 +1,14 @@
 import React from 'react';
-import { motion } from 'motion/react';
 import {
   Calendar,
   Clock,
   CheckSquare,
   LayoutGrid,
-  Bell,
   Plus,
-  Layers,
-  ExternalLink,
+  Bell,
   GraduationCap,
+  Layers,
+  User as UserIcon,
 } from 'lucide-react';
 import { CalendarViewMode } from '../types';
 
@@ -19,10 +18,10 @@ interface NavbarProps {
   unreadNotificationsCount: number;
   onOpenNotifications: () => void;
   onOpenAddCourse: () => void;
+  onOpenAuthModal?: () => void;
   isCloudConnected?: boolean;
   userEmail?: string | null;
-  onSignInGoogle?: () => void;
-  onSignOut?: () => void;
+  userPhoto?: string | null;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -31,10 +30,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   unreadNotificationsCount,
   onOpenNotifications,
   onOpenAddCourse,
+  onOpenAuthModal,
   isCloudConnected = true,
   userEmail,
-  onSignInGoogle,
-  onSignOut,
+  userPhoto,
 }) => {
   const navItems: { id: CalendarViewMode; label: string; icon: React.ReactNode }[] = [
     { id: 'week', label: 'Week Timetable', icon: <Clock className="w-3.5 h-3.5" /> },
@@ -73,40 +72,30 @@ export const Navbar: React.FC<NavbarProps> = ({
                   href="https://one.vinuni.edu.vn/"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hover:text-[#0B2545] flex items-center gap-1 font-medium transition-colors text-slate-600"
+                  className="hover:text-blue-600 font-medium"
                 >
-                  <span>one.vinuni.edu.vn</span>
-                  <ExternalLink className="w-2.5 h-2.5" />
+                  myVinUni One
                 </a>
               </div>
             </div>
           </div>
 
-          {/* Navigation View Switcher with Framer Motion liquid sliding pill */}
-          <nav
-            id="nav-view-switcher"
-            aria-label="Calendar Views"
-            className="hidden lg:flex items-center bg-slate-100/90 p-1 rounded-xl border border-slate-200"
-          >
+          {/* Navigation View Switcher */}
+          <nav className="hidden md:flex items-center gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200">
             {navItems.map((item) => {
               const isActive = currentView === item.id;
               return (
                 <button
                   key={item.id}
-                  id={`tab-${item.id}-view`}
+                  id={`nav-tab-${item.id}`}
                   onClick={() => onViewChange(item.id)}
-                  className={`relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap ${
-                    isActive ? 'text-[#0B2545]' : 'text-slate-600 hover:text-slate-900'
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all relative ${
+                    isActive
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                   }`}
                 >
-                  {isActive && (
-                    <motion.div
-                      layoutId="navbar-active-pill"
-                      className="absolute inset-0 bg-white rounded-lg shadow-xs border border-slate-200/80 z-0"
-                      transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                    />
-                  )}
-                  <span className="relative z-10 flex items-center gap-1.5">
+                  <span className="flex items-center gap-1.5">
                     {item.icon}
                     <span>{item.label}</span>
                   </span>
@@ -140,29 +129,28 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             </div>
 
-            {/* Auth / Account */}
-            {userEmail ? (
-              <div className="hidden lg:flex items-center gap-2 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200">
-                <span className="text-[11px] font-medium text-slate-700 max-w-[130px] truncate" title={userEmail}>
-                  {userEmail}
-                </span>
-                {onSignOut && (
-                  <button
-                    onClick={onSignOut}
-                    className="text-[10px] text-slate-500 hover:text-red-600 font-semibold transition-colors"
-                  >
-                    Logout
-                  </button>
-                )}
-              </div>
-            ) : onSignInGoogle ? (
+            {/* Account & Customizable User Switcher Button */}
+            {onOpenAuthModal && (
               <button
-                onClick={onSignInGoogle}
-                className="hidden md:flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors border border-slate-200"
+                type="button"
+                onClick={onOpenAuthModal}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-800 border border-slate-200 transition-all active:scale-95"
+                title="Account, Google Sign In & Student Cloud Customization"
               >
-                Sign In
+                {userPhoto ? (
+                  <img
+                    src={userPhoto}
+                    alt="avatar"
+                    className="w-4 h-4 rounded-full object-cover"
+                  />
+                ) : (
+                  <UserIcon className="w-3.5 h-3.5 text-blue-600" />
+                )}
+                <span className="max-w-[110px] truncate">
+                  {userEmail || 'My Account'}
+                </span>
               </button>
-            ) : null}
+            )}
 
             {/* Push Notifications Bell */}
             <button
@@ -179,33 +167,37 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </button>
 
-            {/* Manual Course Add Primary Button */}
-            <motion.button
+            {/* Add Course Primary Button */}
+            <button
               id="btn-add-course"
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
               onClick={onOpenAddCourse}
-              className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-[#0B2545] hover:bg-[#134074] rounded-xl shadow-xs transition-all whitespace-nowrap border border-[#134074]"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#0B2545] hover:bg-[#134074] text-white shadow-xs transition-colors"
             >
-              <Plus className="w-4 h-4 text-[#D4AF37]" />
-              <span>Add Course</span>
-            </motion.button>
+              <Plus className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Add Course</span>
+            </button>
           </div>
         </div>
 
-        {/* Mobile View Sub-Bar */}
-        <div className="lg:hidden flex items-center justify-around py-2 border-t border-slate-100 gap-1 overflow-x-auto">
-          {navItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => onViewChange(item.id)}
-              className={`px-3 py-1 text-xs font-bold rounded-md whitespace-nowrap ${
-                currentView === item.id ? 'bg-[#0B2545] text-white' : 'text-slate-600'
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
+        {/* Mobile Navigation Tabs */}
+        <div className="flex md:hidden overflow-x-auto py-2 gap-1 border-t border-slate-100 no-scrollbar">
+          {navItems.map((item) => {
+            const isActive = currentView === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => onViewChange(item.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                  isActive
+                    ? 'bg-[#0B2545] text-white font-semibold'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                {item.icon}
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </header>
