@@ -1,0 +1,71 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Student profile data and preferences",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth user ID" },
+        "studentId": { "type": "string", "description": "University Student ID e.g. 26an.ntt" },
+        "studentName": { "type": "string", "description": "Student full name" },
+        "email": { "type": "string", "description": "Student institutional email" },
+        "college": { "type": "string", "description": "College e.g. CECS" },
+        "program": { "type": "string", "description": "Degree program name" },
+        "cohort": { "type": "string", "description": "Graduation cohort year" },
+        "gpa": { "type": "number", "description": "Grade point average" },
+        "canvasFeedUrl": { "type": "string", "description": "Canvas LMS iCal feed link (.ics)" },
+        "updatedAt": { "type": "string", "description": "ISO timestamp of last update" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "Enrolled college course and schedule",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Course identifier" },
+        "userId": { "type": "string", "description": "Owning user UID" },
+        "code": { "type": "string", "description": "Course code e.g. COMP 2030" },
+        "name": { "type": "string", "description": "Course title" },
+        "credits": { "type": "number", "description": "Credits count" },
+        "college": { "type": "string", "description": "Department or college name" },
+        "color": { "type": "string", "description": "Color theme hex code" },
+        "semester": { "type": "string", "description": "Academic semester" },
+        "timeSlots": { "type": "array", "description": "Class session time slots" }
+      },
+      "required": ["id", "userId", "code", "name"]
+    },
+    "Deadline": {
+      "title": "Deadline",
+      "description": "Assignment, quiz, project or exam deadline",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Deadline unique ID" },
+        "userId": { "type": "string", "description": "Owning user UID" },
+        "courseId": { "type": "string", "description": "Associated course ID" },
+        "title": { "type": "string", "description": "Assignment or exam title" },
+        "type": { "type": "string", "description": "Deadline type (Assignment, Quiz, Exam, Project)" },
+        "dueDate": { "type": "string", "description": "Due date in YYYY-MM-DD" },
+        "dueTime": { "type": "string", "description": "Due time in HH:mm" },
+        "status": { "type": "string", "description": "Status: pending or completed" },
+        "priority": { "type": "string", "description": "Priority: low, medium, high" },
+        "submissionUrl": { "type": "string", "description": "Canvas submission URL" }
+      },
+      "required": ["id", "userId", "title", "dueDate", "dueTime", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile and sync preferences"
+    },
+    "/users/{userId}/courses/{courseId}": {
+      "schema": "Course",
+      "description": "User's enrolled academic courses"
+    },
+    "/users/{userId}/deadlines/{deadlineId}": {
+      "schema": "Deadline",
+      "description": "User's assignment and exam deadlines synced in real-time"
+    }
+  }
+}

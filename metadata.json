@@ -1,0 +1,6 @@
+{
+  "name": "VinUni Course Planner & Calendar",
+  "description": "Customizable college course planner with real-time push notifications, VinUni student portal sync, Microsoft Teams & Outlook calendar integration, home screen widgets, and course resources.",
+  "requestFramePermissions": ["notifications"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
