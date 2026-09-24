@@ -106,7 +106,7 @@ export default function App() {
   const [isCloudConnected, setIsCloudConnected] = useState<boolean>(true);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // Active sync user ID: either custom student ID or Firebase Auth UID
+  // Active sync user ID: either custom student email or Firebase Auth UID
   const effectiveUserId = activeAccountKey || currentUser?.uid || 'guest';
 
   // Subscriptions cleaner ref
@@ -195,12 +195,13 @@ export default function App() {
     };
   }, []);
 
-  // Handle custom student ID account switch
+  // Handle custom student ID / email account switch
   useEffect(() => {
     if (activeAccountKey) {
-      bindUserCloudListeners(activeAccountKey, {
-        displayName: activeAccountKey,
-        email: `${activeAccountKey}@vinuni.edu.vn`,
+      const email = activeAccountKey.includes('@') ? activeAccountKey : `${activeAccountKey}@vinuni.edu.vn`;
+      bindUserCloudListeners(activeAccountKey.replace(/[^a-z0-9_\-]/gi, '_'), {
+        displayName: email.split('@')[0],
+        email: email,
       });
     }
   }, [activeAccountKey]);
@@ -260,12 +261,16 @@ export default function App() {
   };
 
   const handleCustomAccountSwitch = (customIdentifier: string) => {
-    const cleanId = customIdentifier.trim().toLowerCase().replace(/[^a-z0-9_\-]/g, '_');
-    setActiveAccountKey(cleanId);
-    localStorage.setItem('vinuni_active_account_key', cleanId);
-    bindUserCloudListeners(cleanId, {
-      displayName: customIdentifier,
-      email: `${customIdentifier}@vinuni.edu.vn`,
+    let clean = customIdentifier.trim().toLowerCase();
+    if (!clean.includes('@')) {
+      clean = `${clean}@vinuni.edu.vn`;
+    }
+    const cleanStorageKey = clean.replace(/[^a-z0-9_\-]/g, '_');
+    setActiveAccountKey(clean);
+    localStorage.setItem('vinuni_active_account_key', clean);
+    bindUserCloudListeners(cleanStorageKey, {
+      displayName: clean.split('@')[0],
+      email: clean,
     });
   };
 
@@ -439,15 +444,13 @@ export default function App() {
   // Badge count for unread
   const unreadNotificationsCount = notifications.filter((n) => !n.read).length;
 
-  // Active user label
+  // Active user label displayed in Navbar: displays full vinuni mail
   const displayedUserLabel =
     activeAccountKey
-      ? `@${activeAccountKey}`
+      ? (activeAccountKey.includes('@') ? activeAccountKey : `${activeAccountKey}@vinuni.edu.vn`)
       : currentUser?.email
       ? currentUser.email
-      : currentUser?.isAnonymous
-      ? 'Guest Student'
-      : 'Account';
+      : 'student@vinuni.edu.vn';
 
   // Render view components
   const renderActiveView = () => {
@@ -458,7 +461,13 @@ export default function App() {
             courses={courses}
             deadlines={deadlines}
             onSelectCourse={(course) => setSelectedCourse(course)}
-            onAddCourseSlot={(day, startTime) => {
+            onViewChange={(view) => setCurrentView(view)}
+            onOpenAddCourse={() => {
+              setCourseToEdit(null);
+              setAddSlotPreset(null);
+              setShowAddCourse(true);
+            }}
+            onOpenAddCourseWithSlot={(day, startTime) => {
               setCourseToEdit(null);
               setAddSlotPreset({ day, startTime });
               setShowAddCourse(true);
@@ -472,6 +481,7 @@ export default function App() {
             courses={courses}
             deadlines={deadlines}
             onSelectCourse={(course) => setSelectedCourse(course)}
+            onViewChange={(view) => setCurrentView(view)}
             onSelectDate={(dateStr) => {
               console.log('Selected date:', dateStr);
             }}
