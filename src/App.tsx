@@ -35,6 +35,8 @@ import {
   syncCourseToFirebase,
   removeCourseFromFirebase,
   syncDeadlineToFirebase,
+  removeDeadlineFromFirebase,
+  clearAllDeadlinesFromFirebase,
   batchSyncDeadlinesToFirebase,
   seedInitialFirestoreData,
   loginWithGoogle,
@@ -159,7 +161,6 @@ export default function App() {
   useEffect(() => {
     testFirebaseConnection();
 
-    // Check redirect login results
     checkRedirectAuthResult()
       .then((user) => {
         if (user) {
@@ -172,7 +173,6 @@ export default function App() {
       if (user) {
         setCurrentUser(user);
         setIsCloudConnected(true);
-        // If no custom student ID override is active, bind to Google/Firebase UID
         if (!activeAccountKey) {
           bindUserCloudListeners(user.uid, {
             email: user.email || undefined,
@@ -227,7 +227,6 @@ export default function App() {
     try {
       const user = await loginWithGoogle();
       if (user) {
-        // Clear any custom manual override so we use the real Google account
         setActiveAccountKey('');
         localStorage.removeItem('vinuni_active_account_key');
         setCurrentUser(user);
@@ -403,6 +402,20 @@ export default function App() {
     );
   };
 
+  const handleDeleteDeadline = (deadlineId: string) => {
+    setDeadlines((prev) => prev.filter((d) => d.id !== deadlineId));
+    if (effectiveUserId) {
+      removeDeadlineFromFirebase(effectiveUserId, deadlineId).catch(console.error);
+    }
+  };
+
+  const handleClearAllDeadlines = () => {
+    setDeadlines([]);
+    if (effectiveUserId) {
+      clearAllDeadlinesFromFirebase(effectiveUserId).catch(console.error);
+    }
+  };
+
   const handleToggleChapterRead = (courseId: string, chapterNumber: number) => {
     setCourses((prev) => {
       const updated = prev.map((course) => {
@@ -483,6 +496,8 @@ export default function App() {
             onToggleDeadlineStatus={handleToggleDeadlineStatus}
             onToggleReminder={handleToggleReminder}
             onAddDeadline={handleAddDeadline}
+            onDeleteDeadline={handleDeleteDeadline}
+            onClearAllDeadlines={handleClearAllDeadlines}
             onSelectCourse={(course) => setSelectedCourse(course)}
             onNavigateToCanvasFeed={() => setCurrentView('canvas')}
           />
