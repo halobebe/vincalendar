@@ -46,11 +46,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       console.error('Google Sign in error:', err);
       if (err?.code === 'auth/unauthorized-domain') {
         setInternalError(
-          'Firebase Domain Notice: Your current hosting domain needs to be whitelisted in Firebase Console > Authentication > Settings > Authorized Domains. In the meantime, use "Switch to Your University ID" below to customize your schedule immediately!'
+          'Firebase Domain Notice: Your current hosting domain needs to be whitelisted in Firebase Console > Authentication > Settings > Authorized Domains. In the meantime, use "Enter Your VinUniversity Email" below to customize your schedule immediately!'
         );
       } else if (err?.code === 'auth/popup-blocked') {
         setInternalError(
-          'Popup was blocked by your browser. Please allow popups or use "Switch to Your University ID" below.'
+          'Popup was blocked by your browser. Please allow popups or use "Enter Your VinUniversity Email" below.'
         );
       } else {
         setInternalError(
@@ -101,7 +101,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
             <h3 className="text-xl font-bold tracking-tight">Student Cloud Sync & Account</h3>
             <p className="text-xs text-blue-100/80 mt-1">
-              Save your timetable, Canvas courses, and assignment deadlines permanently to your own account.
+              Save your timetable, Canvas courses, and assignment deadlines permanently to your own VinUni account.
             </p>
           </div>
 
@@ -127,7 +127,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                    {!isGuest ? 'Authenticated Account' : 'Guest / Private Session'}
+                    Account Status
                   </span>
                   <span
                     className={`inline-block w-2 h-2 rounded-full ${
@@ -197,7 +197,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div className="relative flex py-1 items-center">
               <div className="flex-grow border-t border-slate-200"></div>
               <span className="flex-shrink mx-3 text-[11px] font-bold text-slate-400 uppercase">
-                Or Customize By Student ID
+                Or Connect Via VinUni Email
               </span>
               <div className="flex-grow border-t border-slate-200"></div>
             </div>
@@ -206,13 +206,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <form onSubmit={handleCustomSwitch} className="space-y-3">
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Switch to Your University ID / Workspace
+                  Enter Your VinUniversity Email
                 </label>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
                     <input
                       type="text"
-                      placeholder="e.g. 26an.ntt or student_john"
+                      placeholder="26an.ntt@vinuni.edu.vn"
                       value={customStudentId}
                       onChange={(e) => setCustomStudentId(e.target.value)}
                       className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all"
@@ -223,11 +223,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     disabled={!customStudentId.trim() || isLoading}
                     className="px-4 py-2.5 bg-[#0B2545] hover:bg-[#134074] text-white text-xs font-bold rounded-xl transition-all disabled:opacity-50"
                   >
-                    Load Workspace
+                    Load Account
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-500 mt-1.5">
-                  Each student ID gets an isolated cloud database with their own schedule, Canvas reminders, and GPA tracker.
+                  Type your VinUni student ID (e.g. <code>26an.ntt</code>) or full email (<code>26an.ntt@vinuni.edu.vn</code>). All your courses and Canvas deadlines are automatically synced to this account.
                 </p>
               </div>
             </form>
