@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, AlertCircle, MapPin } from 'lucide-react';
-import { Course, Deadline, DayOfWeek } from '../types';
+import { Course, Deadline, DayOfWeek, CalendarViewMode } from '../types';
 
 interface CalendarMonthViewProps {
   courses: Course[];
   deadlines: Deadline[];
   onSelectCourse: (course: Course) => void;
   onSelectDeadline?: (deadline: Deadline) => void;
+  onViewChange?: (view: CalendarViewMode) => void;
 }
 
 export const CalendarMonthView: React.FC<CalendarMonthViewProps> = ({
@@ -15,6 +16,7 @@ export const CalendarMonthView: React.FC<CalendarMonthViewProps> = ({
   deadlines,
   onSelectCourse,
   onSelectDeadline,
+  onViewChange,
 }) => {
   const [currentYear, setCurrentYear] = useState(2026);
   const [currentMonth, setCurrentMonth] = useState(8); // September 2026
@@ -50,7 +52,7 @@ export const CalendarMonthView: React.FC<CalendarMonthViewProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Month Header Navigation: Prestigious, clean neutrals */}
+      {/* Month Header Navigation */}
       <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="p-2.5 bg-slate-100 text-[#0B2545] rounded-xl border border-slate-200">
@@ -67,6 +69,23 @@ export const CalendarMonthView: React.FC<CalendarMonthViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 self-end sm:self-auto">
+          {onViewChange && (
+            <div className="flex items-center bg-slate-200/80 p-0.5 rounded-lg border border-slate-300/80">
+              <button
+                onClick={() => onViewChange('month')}
+                className="px-3 py-1 text-xs font-bold rounded-md bg-white text-[#0B2545] shadow-xs"
+              >
+                Month
+              </button>
+              <button
+                onClick={() => onViewChange('week')}
+                className="px-3 py-1 text-xs font-bold rounded-md transition-colors text-slate-600 hover:text-slate-900"
+              >
+                Week
+              </button>
+            </div>
+          )}
+
           <button
             onClick={() => {
               setCurrentYear(2026);
@@ -108,106 +127,96 @@ export const CalendarMonthView: React.FC<CalendarMonthViewProps> = ({
         </div>
 
         {/* Month Day Cells */}
-        <div className="grid grid-cols-7 border-collapse">
-          {Array.from({ length: totalCells }).map((_, index) => {
-            const dayNumber = index - startingCol + 1;
+        <div className="grid grid-cols-7 auto-rows-fr divide-x divide-y divide-slate-100">
+          {Array.from({ length: totalCells }).map((_, idx) => {
+            const dayNumber = idx - startingCol + 1;
             const isCurrentMonth = dayNumber > 0 && dayNumber <= daysInMonth;
-            const dayOfWeekIndex = index % 7;
-            const dayOfWeek = colToDayOfWeek[dayOfWeekIndex];
+            const currentDayOfWeek = colToDayOfWeek[idx % 7];
 
-            const dateStr = isCurrentMonth
-              ? `${currentYear}-${(currentMonth + 1).toString().padStart(2, '0')}-${dayNumber.toString().padStart(2, '0')}`
+            const activeDateString = isCurrentMonth
+              ? `${currentYear}-${(currentMonth + 1).toString().padStart(2, '0')}-${dayNumber
+                  .toString()
+                  .padStart(2, '0')}`
               : '';
 
             const dayDeadlines = isCurrentMonth
-              ? deadlines.filter((d) => d.dueDate === dateStr)
+              ? deadlines.filter((d) => d.dueDate === activeDateString)
               : [];
 
-            const dayCourses: { course: Course; type: string; room: string }[] = [];
-            if (isCurrentMonth) {
-              courses.forEach((c) => {
-                c.timeSlots.forEach((slot) => {
-                  if (slot.day === dayOfWeek) {
-                    dayCourses.push({
-                      course: c,
-                      type: slot.type,
-                      room: slot.room,
-                    });
-                  }
-                });
-              });
-            }
+            const dayCourses = isCurrentMonth
+              ? courses.filter((c) => c.schedule.some((slot) => slot.day === currentDayOfWeek))
+              : [];
 
             const isToday = isCurrentMonth && dayNumber === 21 && currentMonth === 8;
 
             return (
               <div
-                key={index}
-                className={`min-h-[110px] p-2 border-r border-b border-slate-200 last:border-r-0 transition-colors ${
-                  !isCurrentMonth ? 'bg-slate-50/40 opacity-40' : 'bg-white hover:bg-slate-50/50'
-                } ${isToday ? 'bg-blue-50/25' : ''}`}
+                key={idx}
+                className={`min-h-[110px] p-2 flex flex-col transition-colors ${
+                  !isCurrentMonth
+                    ? 'bg-slate-50/50 text-slate-300'
+                    : isToday
+                    ? 'bg-sky-50/40 text-slate-900'
+                    : 'bg-white hover:bg-slate-50/70 text-slate-900'
+                }`}
               >
-                {isCurrentMonth && (
-                  <>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span
-                        className={`text-xs font-bold font-mono px-1.5 py-0.5 rounded-md ${
-                          isToday
-                            ? 'bg-[#0B2545] text-white'
-                            : 'text-slate-800'
+                <div className="flex items-center justify-between mb-1">
+                  <span
+                    className={`text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full ${
+                      isToday
+                        ? 'bg-[#0B2545] text-white'
+                        : isCurrentMonth
+                        ? 'text-slate-700'
+                        : 'text-slate-300'
+                    }`}
+                  >
+                    {isCurrentMonth ? dayNumber : ''}
+                  </span>
+
+                  {dayDeadlines.length > 0 && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">
+                      {dayDeadlines.length} due
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex-1 space-y-1 overflow-hidden">
+                  {dayDeadlines.slice(0, 2).map((dl) => {
+                    const c = courses.find((course) => course.id === dl.courseId);
+                    return (
+                      <div
+                        key={dl.id}
+                        onClick={() => onSelectDeadline && onSelectDeadline(dl)}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold truncate cursor-pointer transition-all ${
+                          dl.status === 'completed'
+                            ? 'bg-emerald-50 text-emerald-700 line-through'
+                            : 'bg-red-50 text-red-700 border border-red-200'
                         }`}
+                        title={`${dl.title} (${dl.dueTime})`}
                       >
-                        {dayNumber}
-                      </span>
-                      {dayDeadlines.length > 0 && (
-                        <span className="w-2 h-2 rounded-full bg-red-500" />
-                      )}
+                        • {c?.code || ''} {dl.title}
+                      </div>
+                    );
+                  })}
+
+                  {dayCourses.slice(0, 2).map((course) => (
+                    <div
+                      key={course.id}
+                      onClick={() => onSelectCourse(course)}
+                      className="px-1.5 py-0.5 rounded text-[10px] font-semibold text-white truncate cursor-pointer shadow-xs hover:opacity-90"
+                      style={{ backgroundColor: course.color }}
+                      title={`${course.code} - ${course.name}`}
+                    >
+                      {course.code}
                     </div>
+                  ))}
 
-                    <div className="space-y-1">
-                      {/* Deadlines Pills */}
-                      {dayDeadlines.map((dl) => (
-                        <div
-                          key={dl.id}
-                          onClick={() => onSelectDeadline?.(dl)}
-                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded truncate cursor-pointer transition-all flex items-center gap-1 ${
-                            dl.type === 'Exam'
-                              ? 'bg-red-50 text-red-700 border border-red-200'
-                              : 'bg-amber-50 text-amber-900 border border-amber-200'
-                          }`}
-                          title={`${dl.title} - Due ${dl.dueTime}`}
-                        >
-                          <span className="w-1.5 h-1.5 rounded-full bg-current shrink-0" />
-                          <span className="truncate">{dl.title}</span>
-                        </div>
-                      ))}
-
-                      {/* Course Indicators */}
-                      {dayCourses.slice(0, 2).map((dc, i) => (
-                        <div
-                          key={i}
-                          onClick={() => onSelectCourse(dc.course)}
-                          className="text-[10px] font-semibold px-1.5 py-0.5 rounded truncate cursor-pointer transition-opacity hover:opacity-80 flex items-center gap-1 border border-slate-200 bg-white"
-                          title={`${dc.course.code} (${dc.type}) - ${dc.room}`}
-                        >
-                          <span
-                            className="w-1.5 h-1.5 rounded-full shrink-0"
-                            style={{ backgroundColor: dc.course.color }}
-                          />
-                          <span className="truncate text-slate-800 font-mono">
-                            {dc.course.code}
-                          </span>
-                        </div>
-                      ))}
-
-                      {dayCourses.length > 2 && (
-                        <span className="block text-[9px] text-slate-400 font-medium px-1">
-                          +{dayCourses.length - 2} more classes
-                        </span>
-                      )}
+                  {(dayCourses.length + dayDeadlines.length > 4) && (
+                    <div className="text-[9px] text-slate-400 font-bold pl-1">
+                      +{dayCourses.length + dayDeadlines.length - 4} more
                     </div>
-                  </>
-                )}
+                  )}
+                </div>
               </div>
             );
           })}
