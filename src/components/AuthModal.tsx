@@ -4,15 +4,10 @@ import {
   LogIn,
   LogOut,
   User as UserIcon,
-  CheckCircle2,
   AlertCircle,
-  Sparkles,
   Cloud,
   Loader2,
   X,
-  ExternalLink,
-  Shield,
-  KeyRound,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 
@@ -49,9 +44,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       onClose();
     } catch (err: any) {
       console.error('Google Sign in error:', err);
-      setInternalError(
-        err?.message || 'Google sign in was canceled or not authorized on this domain.'
-      );
+      if (err?.code === 'auth/unauthorized-domain') {
+        setInternalError(
+          'Firebase Domain Notice: Your current hosting domain needs to be whitelisted in Firebase Console > Authentication > Settings > Authorized Domains. In the meantime, use "Switch to Your University ID" below to customize your schedule immediately!'
+        );
+      } else if (err?.code === 'auth/popup-blocked') {
+        setInternalError(
+          'Popup was blocked by your browser. Please allow popups or use "Switch to Your University ID" below.'
+        );
+      } else {
+        setInternalError(
+          err?.message || 'Google sign in was canceled or not authorized on this domain.'
+        );
+      }
     } finally {
       setIsLoading(false);
     }
@@ -185,7 +190,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 )}
               </button>
               <p className="text-[11px] text-slate-400 text-center">
-                Supports student <code className="text-slate-600 font-semibold">@vinuni.edu.vn</code> or any personal Google accounts.
+                Supports student <code className="text-slate-600 font-semibold">@vinuni.edu.vn</code> or personal Google accounts.
               </p>
             </div>
 
@@ -197,7 +202,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <div className="flex-grow border-t border-slate-200"></div>
             </div>
 
-            {/* Option 2: Custom Student ID Switcher (Guaranteed to work regardless of browser popup blockers) */}
+            {/* Option 2: Custom Student ID Switcher */}
             <form onSubmit={handleCustomSwitch} className="space-y-3">
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
